@@ -1,1 +1,4 @@
 config.py
+# Ignorar carpetas de caché de Python
+__pycache__/
+*.pyc
