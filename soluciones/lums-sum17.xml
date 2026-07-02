@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE solution PUBLIC "-//ITC 2019//DTD Problem Format/EN" "http://www.itc2019.org/competition-format.dtd">
+<solution name="lums-sum17" runtime="0.6" cores="1" technique="GNN &amp; Latin Polytopes (API-Carpio)" institution="Instituto Tecnológico de León" country="Mexico">
+  <class id="1" days="1111000" start="96" length="22" weeks="111111111" room="45" />
+  <class id="2" days="1111000" start="192" length="15" weeks="111111111" room="28" />
+  <class id="3" days="1111000" start="120" length="15" weeks="111111111" room="29" />
+  <class id="4" days="1010000" start="168" length="34" weeks="111111111" room="59" />
+  <class id="5" days="1111000" start="108" length="15" weeks="111111111" room="12" />
+  <class id="6" days="1111000" start="144" length="22" weeks="111111111" room="42" />
+  <class id="7" days="1111000" start="120" length="22" weeks="111111111" room="25" />
+  <class id="8" days="1111000" start="162" length="22" weeks="111111111" room="22" />
+  <class id="9" days="1111000" start="138" length="22" weeks="111111111" room="8" />
+  <class id="10" days="1111000" start="144" length="22" weeks="111111111" room="28" />
+  <class id="11" days="1111000" start="114" length="22" weeks="111111111" room="22" />
+  <class id="12" days="1111000" start="198" length="15" weeks="111111111" room="29" />
+  <class id="13" days="1111000" start="138" length="22" weeks="111111111" room="23" />
+  <class id="14" days="1111000" start="144" length="15" weeks="111111111" room="27" />
+  <class id="15" days="1111000" start="168" length="22" weeks="111111111" room="38" />
+  <class id="16" days="0101000" start="114" length="58" weeks="111111111" room="62" />
+  <class id="17" days="1111000" start="144" length="22" weeks="111111111" room="38" />
+  <class id="18" days="1111000" start="114" length="22" weeks="111111111" room="27" />
+  <class id="19" days="1111000" start="114" length="22" weeks="111111111" room="8" />
+  <class id="20" days="1111000" start="162" length="22" weeks="111111111" room="24" />
+</solution>

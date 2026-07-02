@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE solution PUBLIC "-//ITC 2019//DTD Problem Format/EN" "http://www.itc2019.org/competition-format.dtd">
+<solution name="lums-sum17" cores="1" technique="GNN &amp; Latin Polytopes (API-Carpio)" author="Octavio Eduardo González Grajeda, Juan Martín Carpio Valadez, Lucero de Montserrat Ortiz Aguilar, Héctor José Puga Soberanes, Manuel Ornelas Rodríguez">
+  <class id="1" days="1111000" start="162" length="1" weeks="111111111" room="9" />
+  <class id="2" days="1111000" start="144" length="1" weeks="111111111" room="50" />
+  <class id="3" days="1111000" start="138" length="1" weeks="111111111" room="51" />
+  <class id="4" days="1010000" start="126" length="1" weeks="111111111" room="58" />
+  <class id="5" days="1111000" start="174" length="1" weeks="111111111" room="2" />
+  <class id="6" days="1111000" start="174" length="1" weeks="111111111" room="11" />
+  <class id="7" days="1111000" start="162" length="1" weeks="111111111" room="5" />
+  <class id="8" days="1111000" start="144" length="1" weeks="111111111" room="52" />
+  <class id="9" days="1111000" start="132" length="1" weeks="111111111" room="4" />
+  <class id="10" days="1111000" start="186" length="1" weeks="111111111" room="56" />
+  <class id="11" days="1111000" start="162" length="1" weeks="111111111" room="52" />
+  <class id="12" days="1111000" start="132" length="1" weeks="111111111" room="15" />
+  <class id="13" days="1111000" start="126" length="1" weeks="111111111" room="7" />
+  <class id="14" days="1111000" start="144" length="1" weeks="111111111" room="27" />
+  <class id="15" days="1111000" start="114" length="1" weeks="111111111" room="3" />
+  <class id="16" days="1010000" start="138" length="1" weeks="111111111" room="19" />
+  <class id="17" days="1111000" start="156" length="1" weeks="111111111" room="54" />
+  <class id="18" days="1111000" start="96" length="1" weeks="111111111" room="44" />
+  <class id="19" days="1111000" start="114" length="1" weeks="111111111" room="11" />
+  <class id="20" days="1111000" start="120" length="1" weeks="111111111" room="23" />
+</solution>

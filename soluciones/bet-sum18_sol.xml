@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE solution PUBLIC "-//ITC 2019//DTD Problem Format/EN" "http://www.itc2019.org/competition-format.dtd">
+<solution name="bet-sum18" runtime="299.28" cores="1" technique="GNN &amp; Latin Polytopes (API-Carpio)" author="Octavio Eduardo González Grajeda &amp; Juan Martín Carpio Valadez">
+  <class id="95" days="0000100" start="192" length="10" weeks="111111"/>
+  <class id="89" days="0000100" start="132" length="20" weeks="111111"/>
+  <class id="103" days="0000010" start="108" length="87" weeks="111111" room="13"/>
+  <class id="81" days="1111000" start="128" length="16" weeks="111111" room="2"/>
+  <class id="82" days="1111000" start="144" length="16" weeks="111111" room="2"/>
+  <class id="83" days="0000100" start="128" length="15" weeks="111111" room="11"/>
+  <class id="84" days="0000100" start="144" length="15" weeks="111111" room="6"/>
+  <class id="68" days="1111100" start="96" length="15" weeks="111111" room="42"/>
+  <class id="69" days="1111100" start="112" length="15" weeks="111111" room="42"/>
+  <class id="26" days="1111100" start="96" length="15" weeks="111111" room="3"/>
+  <class id="27" days="1111100" start="112" length="15" weeks="111111" room="3"/>
+  <class id="28" days="1111100" start="128" length="15" weeks="111111" room="3"/>
+  <class id="99" days="0000100" start="180" length="20" weeks="111111"/>
+  <class id="104" days="1000000" start="96" length="10" weeks="111111"/>
+  <class id="113" days="1000000" start="192" length="10" weeks="111111"/>
+</solution>
