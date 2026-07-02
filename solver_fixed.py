@@ -107,6 +107,7 @@ class Instance:
     rooms: Dict[str, Room] = field(default_factory=dict)
     classes: Dict[str, CourseClass] = field(default_factory=dict)
     distributions: List[Distribution] = field(default_factory=list)
+    students: Dict[str, Any] = field(default_factory=dict)
     num_weeks: int = 1
     num_days: int = 5
     slots_per_day: int = 10
@@ -1338,32 +1339,68 @@ class StudentSectioningGaleShapley:
         self.inst = inst
         self.cfg = cfg
         self.logger = logging.getLogger("GaleShapley")
-
-    def _build_course_trees(self) -> Dict[str, Dict[str, List[str]]]:
-        trees = {}
-        for cid, cls in self.inst.classes.items():
-            conf = cls.config_id
-            if conf not in trees: trees[conf] = {}
-            parent = cls.parent if cls.parent else "ROOT"
-            if parent not in trees[conf]: trees[conf][parent] = []
-            trees[conf][parent].append(cid)
-            if cid not in trees[conf]: trees[conf][cid] = []
-        return trees
+        self.student_enrollment = defaultdict(list)
 
     def optimize_sectioning(self, assignment: Dict[str, Assignment]) -> Dict[str, Assignment]:
-        if not self.cfg.SECTIONING.get("enabled", False): return assignment
-        self.logger.info("  Iniciando Seccionamiento Jerárquico (Parent-Child)...")
-        course_trees = self._build_course_trees()
-        self.logger.info(f"  Análisis completado: {len(course_trees)} árboles de configuración procesados.")
-        self.logger.info("  Factibilidad dura asegurada. Saltando reasignación blanda para proteger el XML.")
+        # --- NUEVA CLÁUSULA DE GUARDA ---
+        if not self.cfg.SECTIONING.get("enabled", False) or not hasattr(self.inst, 'students') or not self.inst.students:
+            self.logger.info("  Seccionamiento saltado: Deshabilitado o instancia sin estudiantes.")
+            return assignment
+        # ---------------------------------
+        self.student_enrollment.clear()
+        
+        # 1. Agrupar clases por curso para facilitar el enrolamiento
+        course_to_classes = defaultdict(list)
+        for cid, cls in self.inst.classes.items():
+            course_to_classes[cls.course_id].append(cid)
+            
+        # 2. Enrolar estudiantes greedy
+        student_course_assignments = {} # student_id -> {course_id: class_id}
+        
+        for student_id, student in self.inst.students.items():
+            assigned_classes = []
+            valid_schedule = True
+            
+            for course_id in student.courses: # Asumiendo que el objeto Instance tiene esta info
+                # Buscar sección con espacio y sin conflicto de horario
+                best_class = None
+                for cid in course_to_classes[course_id]:
+                    cls = self.inst.classes[cid]
+                    if len(self.student_enrollment[cid]) < cls.limit:
+                        # Verificar conflicto de horario
+                        new_ts = assignment[cid].timeslot
+                        if not self._has_time_conflict(assigned_classes, new_ts, assignment):
+                            best_class = cid
+                            break
+                
+                if best_class:
+                    self.student_enrollment[best_class].append(student_id)
+                    assigned_classes.append(best_class)
+                else:
+                    valid_schedule = False
+            
+            if not valid_schedule:
+                self.logger.warning(f"  ⚠ Estudiante {student_id} no pudo completar su horario.")
+        
         return assignment
+
+    def _has_time_conflict(self, assigned_classes: List[str], new_ts_id: str, assignment: Dict[str, Assignment]) -> bool:
+        new_ts = self.inst.timeslots[new_ts_id]
+        for cid in assigned_classes:
+            ts = self.inst.timeslots[assignment[cid].timeslot]
+            # Conflicto si comparten el mismo día y semana y se traslapan
+            if (ts.days_mask & new_ts.days_mask) and (ts.weeks_mask & new_ts.weeks_mask):
+                if not (new_ts.start_int + self.inst.classes[new_ts_id].length <= ts.start_int or 
+                        ts.start_int + self.inst.classes[cid].length <= new_ts.start_int):
+                    return True
+        return False
 
 # =============================================================================
 #  ESCRITOR Y ORQUESTADOR
 # =============================================================================
 
-def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: str, elapsed: float = 0.0):
-    root = ET.Element("solution", name=inst.name, runtime=f"{elapsed:.1f}", cores="1", technique="GNN & Latin Polytopes (API-Carpio)", institution="Instituto Tecnológico de León", country="Mexico")
+def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: str, elapsed: float = 0.0, student_enrollment: Dict = None):
+    root = ET.Element("solution", name=inst.name, runtime=f"{elapsed:.1f}", technique="GNN & Latin Polytopes")
     for cid in sorted(assignment.keys(), key=lambda x: int(x) if x.isdigit() else x):
         asgn = assignment[cid]
         cls_el = ET.SubElement(root, "class", id=cid)
@@ -1377,6 +1414,12 @@ def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: 
                 cls_el.set("weeks",  ts.weeks)
         if asgn.room and asgn.room not in ("NO_ROOM", ""):
             cls_el.set("room", asgn.room)
+
+    if student_enrollment:
+        for cid, student_list in student_enrollment.items():
+            for sid in student_list:
+                st_el = ET.SubElement(root, "student", id=sid)
+                ET.SubElement(st_el, "class", id=cid)
             
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
@@ -1405,10 +1448,23 @@ class SolverPipeline:
         if not asgn: return {"instance": name, "status": "INFEASIBLE", "time": time.time() - t0}
 
         asgn = SimulatedAnnealing(inst, self.cfg, csp, polytopes).optimize(asgn)
-        asgn = StudentSectioningGaleShapley(inst, self.cfg).optimize_sectioning(asgn)
-
+        
+        # --- CORRECCIÓN AQUÍ ---
+        # Definimos una variable para los datos de enrolamiento, vacía por defecto
+        enrollment_data = {} 
+        
+        # Solo intentamos el seccionamiento si cumple las condiciones
+        if self.cfg.SECTIONING.get("enabled", False) and hasattr(inst, 'students') and inst.students:
+            sectioner = StudentSectioningGaleShapley(inst, self.cfg)
+            asgn = sectioner.optimize_sectioning(asgn)
+            enrollment_data = sectioner.student_enrollment
+        
         elapsed, out_path = time.time() - t0, str(Path(self.cfg.PATHS["solutions_dir"]) / f"{name}.xml")
-        write_solution(inst, asgn, out_path, elapsed=elapsed)
+        
+        # Pasamos la variable segura enrollment_data
+        write_solution(inst, asgn, out_path, elapsed=elapsed, student_enrollment=enrollment_data)
+        # -----------------------
+
         self.logger.info(f"  Solución escrita: {out_path}")
         return {"instance": name, "status": "OK", "classes": len(asgn), "time": elapsed}
 
