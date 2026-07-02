@@ -2,3 +2,4 @@ config.py
 # Ignorar carpetas de caché de Python
 __pycache__/
 *.pyc
+soluciones/sums-sum17.xml
