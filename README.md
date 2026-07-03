@@ -34,10 +34,12 @@ pip install numpy scipy
 pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu118](https://download.pytorch.org/whl/cu118)
 pip install torch_geometric
 ```
-🚀 Uso y Ejecución
+--- 
+
+## 🚀 Uso y Ejecución
 El repositorio ofrece dos vías principales de ejecución dependiendo del poder de cómputo y el rigor requerido.
 
-1. Ejecución Paralela (Recomendada)
+### 1. Ejecución Paralela (Recomendada)
 Para instancias masivas y de competencia, el script run_parallel.py lanza múltiples instancias del CSP (restarts) en procesos paralelos aislados, aprovechando todos los núcleos físicos de la CPU. Explora distintas semillas estocásticas para evadir mínimos locales.
 
 ```bash
@@ -46,12 +48,14 @@ python run_parallel.py --instance muni-fsps-spr17c --config config.py --jobs 6
 
 --jobs: Número de workers paralelos (sugerido: el número de núcleos físicos de tu procesador).
 ```
-2. Ejecución Estándar (Single-Core / Debugging)
+### 2. Ejecución Estándar (Single-Core / Debugging)
 Para pruebas rápidas y revisión detallada del log (telemetría, análisis espectral, inyección de cliques).
 
 ```bash
 python solver_fixed.py --instance bet-sum18 --config config.py
 ```
+---
+
 ## 🎛 Configuración (config.py)
 Todo el comportamiento del solver se controla de manera centralizada en config.py. Las rutas, los hiperparámetros de la GNN y el esquema estocástico se configuran aquí:
 
