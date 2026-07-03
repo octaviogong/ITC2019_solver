@@ -68,6 +68,7 @@ class TimeSlot:
     days_mask: int = 0
     weeks_mask: int = 0
     start_int: int = 0
+    length: int = 0
 
 @dataclass
 class Room:
@@ -120,6 +121,16 @@ class Assignment:
         self.timeslot = timeslot
         self.room     = room
 
+def slot_len(inst: "Instance", cid: str, ts_id: Optional[str]) -> int:
+    """Longitud REAL de la clase en el timeslot asignado. En ITC la longitud es
+    propiedad del timeslot (MWF 50min vs TR 75min), no de la clase; se usa la del
+    timeslot y, si éste no la trae (tiempos heredados del subpart), la de la clase."""
+    ts = inst.timeslots.get(ts_id) if ts_id else None
+    if ts is not None and ts.length > 0:
+        return ts.length
+    c = inst.classes.get(cid)
+    return c.length if c else 1
+
 # =============================================================================
 #  FASE 1 — PARSER XML ITC 2019
 # =============================================================================
@@ -130,19 +141,24 @@ class ITC2019Parser:
         t_days = tm.get("days", "0")
         t_start = tm.get("start", "0")
         t_weeks = tm.get("weeks", "0")
+        t_len   = int(tm.get("length")) if tm.get("length") else 0
 
         d_mask = int(t_days.ljust(7, '0'), 2) if t_days else 0
         w_mask = int(t_weeks.ljust(16, '0'), 2) if t_weeks else 0
         s_int  = int(t_start) if t_start else 0
 
         if not t_id:
-            t_key = (t_days, t_start, t_weeks)
+            # La longitud forma parte de la IDENTIDAD del timeslot: en ITC un mismo
+            # (days,start,weeks) puede tener longitudes distintas según la opción
+            # (p.ej. MWF 50min vs TR 75min). Guardarla en el id evita colisiones y
+            # que se use una longitud equivocada al calcular solapes.
+            t_key = (t_days, t_start, t_weeks, t_len)
             if t_key not in time_map:
-                t_id = f"T_d{t_days}_s{t_start}_w{t_weeks}" # Eliminamos el [:3]
+                t_id = f"T_d{t_days}_s{t_start}_l{t_len}_w{t_weeks}"
                 time_map[t_key] = t_id
                 inst.timeslots[t_id] = TimeSlot(
                     id=t_id, days=t_days, start=t_start, weeks=t_weeks,
-                    days_mask=d_mask, weeks_mask=w_mask, start_int=s_int
+                    days_mask=d_mask, weeks_mask=w_mask, start_int=s_int, length=t_len
                 )
             else:
                 t_id = time_map[t_key]
@@ -150,7 +166,7 @@ class ITC2019Parser:
             if t_id not in inst.timeslots:
                 inst.timeslots[t_id] = TimeSlot(
                     id=t_id, days=t_days, start=t_start, weeks=t_weeks,
-                    days_mask=d_mask, weeks_mask=w_mask, start_int=s_int
+                    days_mask=d_mask, weeks_mask=w_mask, start_int=s_int, length=t_len
                 )
         return t_id
 
@@ -696,8 +712,12 @@ class CSPSolver:
 
     def _soft_cost(self, meta_assignment: Dict[str, Assignment]) -> float:
         # Costo blando aproximado (tiempo+aula) con pesos ITC, para comparar restarts.
+        # Big-M: una clase que REQUIERE aula pero quedó en NO_ROOM no es válida para
+        # el validador (cuenta como "sin asignar"); se penaliza fuerte para que
+        # keep-cheapest / run_parallel jamás prefieran una solución con NO_ROOM.
         wt = self.inst.optimization.get("time", 1)
         wr = self.inst.optimization.get("room", 1)
+        BIG_M = 1_000_000.0
         tot = 0.0
         for root, a in meta_assignment.items():
             for cid in self.meta_groups[root]:
@@ -705,6 +725,8 @@ class CSPSolver:
                 tot += cls.allowed_times.get(a.timeslot, 0) * wt
                 if a.room not in ("NO_ROOM", "", None):
                     tot += cls.allowed_rooms.get(a.room, 0) * wr
+                elif cls.room_required:
+                    tot += BIG_M
         return tot
 
     def _timeout(self) -> bool:
@@ -737,9 +759,10 @@ class CSPSolver:
         cls = self.inst.classes[var]
         ts_a = self.inst.timeslots.get(ts_id)
         if not ts_a: return True
-        sa, ea = ts_a.start_int, ts_a.start_int + cls.length
+        len_a = slot_len(self.inst, var, ts_id)
+        sa, ea = ts_a.start_int, ts_a.start_int + len_a
 
-        if not self._room_available_for_ts(room, ts_id, cls.length): return True
+        if not self._room_available_for_ts(room, ts_id, len_a): return True
         if cls.allowed_times and ts_id not in cls.allowed_times: return True
         if cls.room_required and cls.allowed_rooms and room not in cls.allowed_rooms: return True
 
@@ -749,7 +772,7 @@ class CSPSolver:
             ts_b = self.inst.timeslots.get(asgn.timeslot)
             if not ts_b: continue
             room_b = asgn.room
-            sb, eb = ts_b.start_int, ts_b.start_int + other_cls.length
+            sb, eb = ts_b.start_int, ts_b.start_int + slot_len(self.inst, other_id, asgn.timeslot)
             
             share_d = (ts_a.days_mask & ts_b.days_mask) != 0
             share_w = (ts_a.weeks_mask & ts_b.weeks_mask) != 0
@@ -773,7 +796,7 @@ class CSPSolver:
                 ts_b = self.inst.timeslots.get(asgn_b.timeslot)
                 if not ts_b: continue
                 other_cls = self.inst.classes[other_var]
-                room_b, sb, eb = asgn_b.room, ts_b.start_int, ts_b.start_int + other_cls.length
+                room_b, sb, eb = asgn_b.room, ts_b.start_int, ts_b.start_int + slot_len(self.inst, other_var, asgn_b.timeslot)
                 share_d = (ts_a.days_mask & ts_b.days_mask) != 0
                 share_w = (ts_a.weeks_mask & ts_b.weeks_mask) != 0
                 overlap_t = not (ea <= sb or eb <= sa)
@@ -852,8 +875,8 @@ class CSPSolver:
             if not room_req: common_rooms = {"NO_ROOM"}
             elif common_rooms is None: common_rooms = set(self.inst.rooms.keys())
 
-            max_len = max(self.inst.classes[cid].length for cid in members)
-            valid_pairs = [(t, r) for t in common_times for r in common_rooms if self._room_available_for_ts(r, t, max_len)]
+            valid_pairs = [(t, r) for t in common_times for r in common_rooms
+                           if self._room_available_for_ts(r, t, slot_len(self.inst, root, t))]
             meta_domains[root] = valid_pairs
         return meta_domains
 
@@ -1153,8 +1176,8 @@ class SimulatedAnnealing:
                     ts_a, ts_b = self.inst.timeslots.get(aa.timeslot), self.inst.timeslots.get(ab.timeslot)
                     if not ts_a or not ts_b: continue
                     cls_a, cls_b = self.inst.classes[a], self.inst.classes[b]
-                    sa, ea = ts_a.start_int, ts_a.start_int + cls_a.length
-                    sb, eb = ts_b.start_int, ts_b.start_int + cls_b.length
+                    sa, ea = ts_a.start_int, ts_a.start_int + slot_len(self.inst, a, aa.timeslot)
+                    sb, eb = ts_b.start_int, ts_b.start_int + slot_len(self.inst, b, ab.timeslot)
                     share_d = (ts_a.days_mask & ts_b.days_mask) != 0
                     share_w = (ts_a.weeks_mask & ts_b.weeks_mask) != 0
                     overlap_t = not (ea <= sb or eb <= sa)
@@ -1200,13 +1223,15 @@ class SimulatedAnnealing:
             for other_var, other_opt in new_asgn.items():
                 if other_var == curr_var or other_var in chain: continue
                 ts_target, ts_other = self.inst.timeslots[target_t], self.inst.timeslots[other_opt.timeslot]
-                overlap_full = not (ts_target.start_int + curr_cls.length <= ts_other.start_int or ts_other.start_int + self.inst.classes[other_var].length <= ts_target.start_int) and (ts_target.days_mask & ts_other.days_mask) != 0 and (ts_target.weeks_mask & ts_other.weeks_mask) != 0
+                len_c = slot_len(self.inst, curr_var, target_t)
+                len_o = slot_len(self.inst, other_var, other_opt.timeslot)
+                overlap_full = not (ts_target.start_int + len_c <= ts_other.start_int or ts_other.start_int + len_o <= ts_target.start_int) and (ts_target.days_mask & ts_other.days_mask) != 0 and (ts_target.weeks_mask & ts_other.weeks_mask) != 0
                 if (overlap_full and other_var in topological_neighbors) or (overlap_full and curr_room != "NO_ROOM" and curr_room == other_opt.room): queue.append((other_var, source_t, target_t))
                     
         temp_asgn = {k: Assignment(v.timeslot, v.room) for k, v in new_asgn.items() if k not in chain}
         for c_id, new_t in chain.items():
             c_room = new_asgn[c_id].room
-            if new_t not in self.inst.classes[c_id].allowed_times or self.csp._room_available_for_ts(c_room, new_t, self.inst.classes[c_id].length) == False or self.csp._conflicts(c_id, new_t, c_room, temp_asgn): return assignment 
+            if new_t not in self.inst.classes[c_id].allowed_times or self.csp._room_available_for_ts(c_room, new_t, slot_len(self.inst, c_id, new_t)) == False or self.csp._conflicts(c_id, new_t, c_room, temp_asgn): return assignment 
             temp_asgn[c_id] = Assignment(timeslot=new_t, room=c_room)
             
         for c_id, new_t in chain.items(): new_asgn[c_id].timeslot = new_t
@@ -1225,7 +1250,7 @@ class SimulatedAnnealing:
             try: curr_idx = self.ts_list.index(new_asgn[cid].timeslot)
             except ValueError: return assignment 
             new_ts, curr_room, cls_info = self.ts_list[(curr_idx + k_shift) % len(self.ts_list)], new_asgn[cid].room, self.inst.classes[cid]
-            if new_ts not in cls_info.allowed_times or self.csp._room_available_for_ts(curr_room, new_ts, cls_info.length) == False or self.csp._conflicts(cid, new_ts, curr_room, temp_asgn): return assignment
+            if new_ts not in cls_info.allowed_times or self.csp._room_available_for_ts(curr_room, new_ts, slot_len(self.inst, cid, new_ts)) == False or self.csp._conflicts(cid, new_ts, curr_room, temp_asgn): return assignment
             temp_asgn[cid], new_asgn[cid].timeslot = Assignment(timeslot=new_ts, room=curr_room), new_ts
         return new_asgn
 
@@ -1432,12 +1457,12 @@ class StudentSectioningGaleShapley:
     def _conflicts_with_schedule(self, cid: str, schedule: List[str], assignment: Dict[str, Assignment]) -> int:
         a = assignment.get(cid)
         if not a or not a.timeslot: return 0
-        la = self.inst.classes[cid].length
+        la = slot_len(self.inst, cid, a.timeslot)
         n = 0
         for other in schedule:
             b = assignment.get(other)
             if not b or not b.timeslot: continue
-            if self._overlaps(a.timeslot, la, b.timeslot, self.inst.classes[other].length): n += 1
+            if self._overlaps(a.timeslot, la, b.timeslot, slot_len(self.inst, other, b.timeslot)): n += 1
         return n
 
     def _select_for_config(self, course: str, config_id: str, prev_schedule: List[str],
@@ -1521,11 +1546,10 @@ def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: 
         cls_el = ET.SubElement(root, "class", id=cid)
         if asgn.timeslot and asgn.timeslot in inst.timeslots:
             ts = inst.timeslots[asgn.timeslot]
-            cc = inst.classes[cid]
             if ts.days and ts.start and ts.weeks:
                 cls_el.set("days",   ts.days)
                 cls_el.set("start",  str(ts.start))
-                cls_el.set("length", str(cc.length)) 
+                cls_el.set("length", str(slot_len(inst, cid, asgn.timeslot)))
                 cls_el.set("weeks",  ts.weeks)
         if asgn.room and asgn.room not in ("NO_ROOM", ""):
             cls_el.set("room", asgn.room)

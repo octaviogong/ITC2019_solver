@@ -24,8 +24,14 @@ def _worker(args):
         asgn = S.SimulatedAnnealing(inst, cfg, csp, pol).optimize(asgn)
     # serializar (spawn: solo tipos simples)
     ser = {cid: (a.timeslot, a.room) for cid, a in asgn.items()}
-    n_asg = sum(1 for a in asgn.values() if a.timeslot)
-    # costo blando aprox (tiempo+aula) con pesos ITC
+    # "válida" = tiene timeslot Y (tiene aula O no requiere aula). Una clase
+    # room_required en NO_ROOM NO es válida para el validador.
+    def _valid(cid, a):
+        if not a.timeslot: return False
+        if inst.classes[cid].room_required and a.room in ("NO_ROOM", "", None): return False
+        return True
+    n_asg = sum(1 for cid, a in asgn.items() if _valid(cid, a))
+    # costo blando (tiempo+aula) con pesos ITC + Big-M por NO_ROOM requerido
     wt = inst.optimization.get("time", 1); wr = inst.optimization.get("room", 1)
     cost = 0
     for cid, a in asgn.items():
@@ -33,6 +39,8 @@ def _worker(args):
         cost += cl.allowed_times.get(a.timeslot, 0) * wt
         if a.room not in ("NO_ROOM", "", None):
             cost += cl.allowed_rooms.get(a.room, 0) * wr
+        elif cl.room_required:
+            cost += 1_000_000
     return (n_asg, cost, seed, ser)
 
 def solve_parallel(instance, config_path, jobs, total_restarts, do_sa=False):
