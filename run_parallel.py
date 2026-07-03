@@ -18,7 +18,7 @@ def _worker(args):
     cfg.CSP["restarts"] = n_restarts
     inst = S.ITC2019Parser().parse(xml_path)
     pol, W, idx = S.SpectralExtractor(cfg).decompose(inst)
-    csp = S.CSPSolver(inst, S.GNNOracle(cfg), W, idx, cfg)
+    csp = S.CSPSolver(inst, W, idx, cfg)
     asgn = csp.solve()
     if do_sa:
         asgn = S.SimulatedAnnealing(inst, cfg, csp, pol).optimize(asgn)

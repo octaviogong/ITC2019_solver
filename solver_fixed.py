@@ -26,28 +26,17 @@ from typing import Dict, List, Optional, Set, Tuple, Any, NamedTuple
 
 import numpy as np
 
-# ── PyTorch / PyG ──
+# ── SciPy (única dependencia numérica: el oráculo estocástico es el LP x*) ──
 try:
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-    from torch_geometric.data import Data, DataLoader
-    from torch_geometric.nn import GCNConv, BatchNorm
-    GNN_AVAILABLE = True
-except ImportError:
-    GNN_AVAILABLE = False
-    print("[AVISO] PyTorch/PyG no disponibles. Se usará la guía de Relajación LP pura.")
-
-# ── SciPy ──
-try:
-    from scipy.sparse import csr_matrix
+    from scipy.sparse import csr_matrix, diags
     from scipy.sparse.linalg import eigsh
     from scipy.optimize import linprog
+    from scipy.cluster.vq import kmeans2
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
     linprog = None
-    print("[AVISO] SciPy no disponible. Relajación de empaquetamiento desactivada.")
+    print("[AVISO] SciPy no disponible. Relajación de empaquetamiento y clustering espectral desactivados.")
 
 def load_config(path: str = "config.py"):
     spec = importlib.util.spec_from_file_location("config", path)
@@ -286,52 +275,154 @@ class ITC2019Parser:
 # =============================================================================
 
 class SpectralExtractor:
-    def __init__(self, cfg):
-        pass
+    """
+    Construye dos grafos distintos sobre las clases:
+      (1) build_conflict_graph -> W_conf DURO (estudiantes compartidos + distribuciones
+          duras). Es el que consume el CSP/LP/Kempe: solo codifica SEPARACIONES reales.
+      (2) build_multigraph -> W_multi de AFINIDAD (multigrafo de 4 capas). Solo para
+          clustering espectral; agrupar por afinidad no implica separar.
+    decompose() hace clustering espectral REAL sobre W_multi (Laplaciana normalizada +
+    eigsh + K-Means) y devuelve micro-politopos cohesivos de tamaño acotado, matando el
+    "politopo gigante" que dejaba inoperante al SA.
+    """
 
-    def build_conflict_graph(self, inst: Instance):
-        class_ids = list(inst.classes.keys())
-        n = len(class_ids)
-        idx = {cid: i for i, cid in enumerate(class_ids)}
-        W = np.zeros((n, n), dtype=np.float32)
+    def __init__(self, cfg) -> None:
+        self.cfg = cfg
+        self.logger = logging.getLogger("SpectralExtractor")
+        spec: Dict[str, Any] = getattr(cfg, "SPECTRAL", {}) if cfg is not None else {}
+        self.target_size: int = int(spec.get("polytope_target_size", 6))
+        self.max_size: int = int(spec.get("polytope_max_size", 8))
+        self.max_eigs: int = int(spec.get("max_eigenvectors", 200))
+        self.spectral_max_n: int = int(spec.get("spectral_max_n", 2500))
+        self.scarce_room_threshold: int = int(spec.get("scarce_room_threshold", 3))
 
-        for i, cid_i in enumerate(class_ids):
-            for j, cid_j in enumerate(class_ids[i+1:], start=i+1):
-                shared = len(inst.classes[cid_i].students & inst.classes[cid_j].students)
-                if shared > 0:
-                    W[i, j] = shared
-                    W[j, i] = shared
+    # ---- (1) Grafo de conflicto DURO (para CSP/LP: solo separaciones reales) ----
+    def build_conflict_graph(self, inst: Instance) -> Tuple[List[str], np.ndarray, Dict[str, int]]:
+        class_ids: List[str] = list(inst.classes.keys())
+        n: int = len(class_ids)
+        idx: Dict[str, int] = {cid: i for i, cid in enumerate(class_ids)}
+        W: np.ndarray = np.zeros((n, n), dtype=np.float32)
 
+        # Estudiantes compartidos vía índice invertido (evita el doble bucle O(N^2)).
+        student_classes: Dict[str, List[int]] = defaultdict(list)
+        for cid in class_ids:
+            for s in inst.classes[cid].students:
+                student_classes[s].append(idx[cid])
+        for cs in student_classes.values():
+            for a in range(len(cs)):
+                ia = cs[a]
+                for b in range(a + 1, len(cs)):
+                    ib = cs[b]
+                    W[ia, ib] += 1.0
+                    W[ib, ia] += 1.0
+
+        # Distribuciones duras => arista (co-restricción que exige separación/atención).
         for dist in inst.distributions:
-            if dist.required:
-                for a in dist.classes:
-                    for b in dist.classes:
-                        if a != b and a in idx and b in idx:
-                            W[idx[a], idx[b]] = max(W[idx[a], idx[b]], 1.0)
-                            W[idx[b], idx[a]] = max(W[idx[b], idx[a]], 1.0)
+            if not dist.required:
+                continue
+            members = [idx[c] for c in dist.classes if c in idx]
+            for a in range(len(members)):
+                ia = members[a]
+                for b in range(a + 1, len(members)):
+                    ib = members[b]
+                    if W[ia, ib] < 1.0:
+                        W[ia, ib] = 1.0
+                        W[ib, ia] = 1.0
         return class_ids, W, idx
 
-    def decompose(self, inst: Instance):
-        class_ids, W, idx = self.build_conflict_graph(inst)
+    # ---- (2) MULTIGRAFO de afinidad de 4 capas (para clustering espectral) ----
+    def build_multigraph(self, inst: Instance, class_ids: List[str], idx: Dict[str, int]):
+        n: int = len(class_ids)
+        acc: Dict[Tuple[int, int], float] = defaultdict(float)
+
+        def add(i: int, j: int, w: float) -> None:
+            if i == j:
+                return
+            acc[(i, j) if i < j else (j, i)] += w
+
+        # Capa 1 — Estudiantes (grafo bipartito proyectado): estudiantes_compartidos × 10.
+        student_classes: Dict[str, List[int]] = defaultdict(list)
+        for cid in class_ids:
+            for s in inst.classes[cid].students:
+                student_classes[s].append(idx[cid])
+        for cs in student_classes.values():
+            for a in range(len(cs)):
+                for b in range(a + 1, len(cs)):
+                    add(cs[a], cs[b], 10.0)
+
+        # Capa 2 — Distribuciones duras (hipergrafo): +50 en SameAttendees/NotOverlap/SameTime.
+        for d in inst.distributions:
+            if d.required and d.dtype in ("SameAttendees", "NotOverlap", "SameTime"):
+                m = [idx[c] for c in d.classes if c in idx]
+                for a in range(len(m)):
+                    for b in range(a + 1, len(m)):
+                        add(m[a], m[b], 50.0)
+
+        # Capa 3 — Curso / jerarquía: +5 si comparten course_id o relación parent-child.
+        course_classes: Dict[str, List[int]] = defaultdict(list)
+        for cid in class_ids:
+            course_classes[inst.classes[cid].course_id].append(idx[cid])
+        for cs in course_classes.values():
+            for a in range(len(cs)):
+                for b in range(a + 1, len(cs)):
+                    add(cs[a], cs[b], 5.0)
+        for cid in class_ids:
+            par = inst.classes[cid].parent
+            if par and par in idx:
+                add(idx[cid], idx[par], 5.0)
+
+        # Capa 4 — Competencia de salas escasas: +2 entre clases que solo caben en un
+        # conjunto reducido de aulas y comparten alguna (proxy de laboratorio escaso).
+        room_constrained: Dict[str, List[int]] = defaultdict(list)
+        for cid in class_ids:
+            cls = inst.classes[cid]
+            if cls.room_required and 0 < len(cls.allowed_rooms) <= self.scarce_room_threshold:
+                for r in cls.allowed_rooms:
+                    room_constrained[r].append(idx[cid])
+        for cs in room_constrained.values():
+            u = sorted(set(cs))
+            for a in range(len(u)):
+                for b in range(a + 1, len(u)):
+                    add(u[a], u[b], 2.0)
+
+        if not acc:
+            return csr_matrix((n, n), dtype=np.float64)
+        rows: List[int] = []
+        cols: List[int] = []
+        data: List[float] = []
+        for (a, b), w in acc.items():
+            rows += [a, b]
+            cols += [b, a]
+            data += [w, w]
+        return csr_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float64)
+
+    # ---- Emisión de politopos (trocea clusters grandes a <= max_size) ----
+    def _emit(self, polytopes: List[Dict[str, Any]], groups: List[List[int]], class_ids: List[str]) -> None:
+        for members in groups:
+            if not members:
+                continue
+            for s in range(0, len(members), self.max_size):
+                chunk = members[s:s + self.max_size]
+                cids = [class_ids[c] for c in chunk]
+                polytopes.append({"class_ids": cids, "fiedler_weights": {c: 1.0 for c in cids}})
+
+    def _components_fallback(self, class_ids: List[str], W_multi) -> List[Dict[str, Any]]:
+        # Componentes conexas + troceo (para N grande o si eigsh falla). El troceo es lo
+        # que evita el politopo gigante aun sin espectral.
         n = len(class_ids)
-        # ── POLITOPOS = COMPONENTES CONEXAS del grafo de conflicto ──────────
-        # Antes se devolvía un único politopo con TODAS las clases, lo que hacía
-        # que los movimientos del SA (diédrico/Kempe) desplazaran todo a la vez y
-        # casi siempre fallaran. Las componentes conexas son subproblemas
-        # separables (politopos independientes): mover dentro de una no afecta a
-        # las demás, así el SA sí puede explorar y optimizar.
-        adj = defaultdict(list)
-        rows, cols = np.where(W > 0)
-        for i, j in zip(rows.tolist(), cols.tolist()):
+        adj: Dict[int, List[int]] = defaultdict(list)
+        coo = W_multi.tocoo()
+        for i, j in zip(coo.row.tolist(), coo.col.tolist()):
             if i < j:
                 adj[i].append(j)
                 adj[j].append(i)
         seen = [False] * n
-        polytopes = []
+        groups: List[List[int]] = []
         for s in range(n):
             if seen[s]:
                 continue
-            comp, stack = [], [s]
+            comp: List[int] = []
+            stack = [s]
             seen[s] = True
             while stack:
                 u = stack.pop()
@@ -340,9 +431,80 @@ class SpectralExtractor:
                     if not seen[v]:
                         seen[v] = True
                         stack.append(v)
-            cids = [class_ids[c] for c in comp]
-            polytopes.append({'class_ids': cids, 'fiedler_weights': {c: 1.0 for c in cids}})
-        return polytopes, W, idx
+            groups.append(comp)
+        polytopes: List[Dict[str, Any]] = []
+        self._emit(polytopes, groups, class_ids)
+        return polytopes
+
+    # ---- Clustering espectral real (Laplaciana normalizada + eigsh + K-Means) ----
+    def _spectral_clusters(self, class_ids: List[str], W_multi) -> List[Dict[str, Any]]:
+        n = len(class_ids)
+        deg = np.asarray(W_multi.sum(axis=1)).ravel()
+        connected = np.where(deg > 0)[0]
+        isolated = np.where(deg <= 0)[0]
+
+        polytopes: List[Dict[str, Any]] = []
+        for i in isolated.tolist():
+            polytopes.append({"class_ids": [class_ids[i]], "fiedler_weights": {class_ids[i]: 1.0}})
+
+        m = int(len(connected))
+        if m == 0:
+            return polytopes
+        if m <= self.max_size:
+            self._emit(polytopes, [connected.tolist()], class_ids)
+            return polytopes
+
+        sub = W_multi[connected][:, connected].astype(np.float64)
+        d = np.asarray(sub.sum(axis=1)).ravel()
+        d_inv_sqrt = 1.0 / np.sqrt(d)
+        Dm = diags(d_inv_sqrt)
+        # N_adj = D^-1/2 W D^-1/2. La Laplaciana normalizada es L = I - N_adj, así que los
+        # valores propios MÁS PEQUEÑOS de L (excl. 0) son los MÁS GRANDES de N_adj: se
+        # extraen con which='LA' (estable y rápido, evita el 'SM' sobre L singular).
+        N_adj = Dm @ sub @ Dm
+        K = max(2, math.ceil(m / self.target_size))
+        n_comp = int(max(1, min(K, self.max_eigs, m - 2)))
+        try:
+            _, vecs = eigsh(N_adj, k=n_comp, which="LA")
+        except Exception as e:
+            self.logger.warning(f"  eigsh no convergió ({e}); fallback a componentes+troceo.")
+            return self._components_fallback(class_ids, W_multi)
+
+        # Normalización de filas (Ng–Jordan–Weiss) antes de K-Means.
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        emb = vecs / norms
+
+        k_clusters = int(min(K, m))
+        seed = int(getattr(self.cfg, "TRAIN", {}).get("seed", 66)) if self.cfg is not None else 66
+        np.random.seed(seed)
+        try:
+            _, labels = kmeans2(emb, k_clusters, minit="++", iter=25, missing="warn")
+        except Exception:
+            _, labels = kmeans2(emb, k_clusters, minit="random", iter=25, missing="warn")
+
+        clusters: Dict[int, List[int]] = defaultdict(list)
+        for local_i, lab in enumerate(labels.tolist()):
+            clusters[int(lab)].append(int(connected[local_i]))
+        self._emit(polytopes, list(clusters.values()), class_ids)
+        return polytopes
+
+    def decompose(self, inst: Instance) -> Tuple[List[Dict[str, Any]], np.ndarray, Dict[str, int]]:
+        class_ids, W_conf, idx = self.build_conflict_graph(inst)
+        n = len(class_ids)
+        if n == 0:
+            return [], W_conf, idx
+        if not SCIPY_AVAILABLE or n <= self.max_size:
+            return ([{"class_ids": class_ids, "fiedler_weights": {c: 1.0 for c in class_ids}}], W_conf, idx)
+
+        W_multi = self.build_multigraph(inst, class_ids, idx)
+        if n > self.spectral_max_n:
+            self.logger.info(f"  [Espectral] N={n} > spectral_max_n={self.spectral_max_n}: "
+                             f"componentes+troceo (eficiencia).")
+            polys = self._components_fallback(class_ids, W_multi)
+        else:
+            polys = self._spectral_clusters(class_ids, W_multi)
+        return polys, W_conf, idx
 
 # =============================================================================
 #  PASO 1 — ANÁLISIS TOPOLÓGICO Y FORMULACIÓN SUPERNODAL
@@ -600,18 +762,70 @@ class PolyhedralCutSeparator:
                     violated_cuts.append((j, hub, C))
         return violated_cuts
 
+class GraphPropagationOracle:
+    """
+    Oráculo de MENSAJERÍA sobre grafos (familia GNN, SIN entrenamiento).
+
+    Realiza inferencia de campo medio desenrollada sobre el grafo de conflicto: en
+    cada iteración cada clase actualiza su distribución sobre timeslots restando la
+    masa que sus vecinos en conflicto ponen en cada horario (ANTI-difusión). Es la
+    dirección correcta para un grafo de conflicto — una GCN estándar difundiría y
+    JUNTARÍA a los vecinos, justo lo contrario de lo deseado.
+
+    Aporta lo que el x* del LP no modela: preferencia de horario (penalización) y
+    coordinación con la red de vecinos. La versión ENTRENABLE (Θ aprendidos por
+    imitación del corpus de soluciones) es la evolución natural; ésta no requiere
+    datos etiquetados ni torch. Devuelve P de forma (num_clases, num_slots).
+    """
+    def __init__(self, cfg) -> None:
+        self.cfg = cfg
+        self.logger = logging.getLogger("GraphOracle")
+        gp: Dict[str, Any] = getattr(cfg, "GRAPH_ORACLE", {}) if cfg is not None else {}
+        self.iters: int = int(gp.get("iterations", 8))
+        self.beta: float = float(gp.get("repulsion", 1.5))
+        self.max_cells: int = int(gp.get("max_cells", 4_000_000))
+
+    @staticmethod
+    def _softmax(logits: np.ndarray) -> np.ndarray:
+        m = logits.max(axis=1, keepdims=True)
+        e = np.exp(logits - m)
+        return e / np.clip(e.sum(axis=1, keepdims=True), 1e-12, None)
+
+    def predict(self, inst: Instance, class_ids: List[str], W: np.ndarray,
+                ts_list: List[str]) -> Optional[np.ndarray]:
+        n, T = len(class_ids), len(ts_list)
+        if n == 0 or T == 0 or n * T > self.max_cells:
+            if n * T > self.max_cells:
+                self.logger.info(f"  [GraphOracle] omitido: {n}x{T} celdas > max_cells={self.max_cells}.")
+            return None
+        ts_index = {t: i for i, t in enumerate(ts_list)}
+        NEG = -1.0e9
+        base = np.full((n, T), NEG, dtype=np.float64)
+        for c, cid in enumerate(class_ids):
+            at = inst.classes[cid].allowed_times
+            if not at:
+                base[c, :] = 0.0
+            else:
+                for t, pen in at.items():
+                    j = ts_index.get(t)
+                    if j is not None:
+                        base[c, j] = -float(pen)   # menor penalización => logit mayor
+        Wc = (W > 0).astype(np.float64)
+        P = self._softmax(base)
+        for _ in range(self.iters):
+            neighbor_mass = Wc @ P                 # agregación de mensajes de vecinos
+            P = self._softmax(base - self.beta * neighbor_mass)
+        return P
+
+
 # =============================================================================
 #  FASE 5 — CSP TOPOLÓGICO Y REDONDEO DEPENDIENTE
+#  Oráculo estocástico: x* del LP (StochasticPackingRounder) enriquecido por un
+#  oráculo de mensajería sobre grafos (GraphPropagationOracle). Sin torch.
 # =============================================================================
 
-class GNNOracle:
-    def __init__(self, cfg):
-        self.cfg = cfg
-    def predict_proba(self, inst, W, idx):
-        return np.ones((len(idx), max(1, len(inst.timeslots)))) / max(1, len(inst.timeslots))
-
 class CSPSolver:
-    def __init__(self, inst: Instance, oracle: GNNOracle, W: np.ndarray, idx: Dict[str, int], cfg):
+    def __init__(self, inst: Instance, W: np.ndarray, idx: Dict[str, int], cfg):
         self.inst = inst
         self.W = W
         self.idx = idx
@@ -692,6 +906,27 @@ class CSPSolver:
             for s_id, classes in supernodes.items():
                 root_cid = class_ids[classes[0]]
                 self.fractional_guide[root_cid] = x_star[s_id]
+
+        # ── ORÁCULO DE MENSAJERÍA SOBRE GRAFOS (familia GNN, sin entrenamiento) ──
+        # Enriquece/define la guía con preferencia de horario + coordinación de
+        # vecinos (lo que el LP no modela). Se mezcla con x* (peso graph_oracle_weight).
+        if self.cfg.CSP.get("use_graph_oracle", True):
+            gw = float(self.cfg.CSP.get("graph_oracle_weight", 0.5))
+            P = GraphPropagationOracle(self.cfg).predict(self.inst, class_ids, self.W, self.ts_list)
+            if P is not None:
+                blended = 0
+                for c, cid in enumerate(class_ids):
+                    p_graph = P[c]
+                    if cid in self.fractional_guide:
+                        x = np.asarray(self.fractional_guide[cid], dtype=np.float64)
+                        s = x.sum()
+                        x = (x / s) if s > 0 else p_graph
+                        self.fractional_guide[cid] = (1.0 - gw) * x + gw * p_graph
+                    else:
+                        self.fractional_guide[cid] = p_graph
+                    blended += 1
+                self.logger.info(f"  [GraphOracle] prior de mensajería aplicado a {blended} clases "
+                                 f"(w={gw}, {'mezclado con x*' if self.fractional_guide else 'solo'}).")
 
         # -------------------------------------------------------------
         self.meta_domains = self._build_meta_domains()
@@ -1363,10 +1598,14 @@ class SimulatedAnnealing:
         T, T_min, alpha = self.cfg.SA["initial_temp"], self.cfg.SA["min_temp"], self.cfg.SA["cooling_rate"]
         cur_pen = best_pen = self._surrogate_penalty(best)   # cachear energía actual
 
-        room_prob = self.cfg.SA.get("room_move_prob", 0.45)
+        # SA hiper-agresivo abaratando aulas: por defecto ~75% de los movimientos
+        # atacan el room_penalty (reasignar/intercambiar/tiempo+aula). El resto usa
+        # Kempe y saltos diédricos sobre los micro-politopos espectrales.
+        room_prob = self.cfg.SA.get("room_move_prob", 0.75)
         kempe_prob = self.cfg.SA.get("kempe_prob", 0.9)
         init_pen = cur_pen
         accepted = 0
+        improved = 0
         iters = 0
 
         for _ in range(self.cfg.SA["max_iterations"]):
@@ -1385,6 +1624,8 @@ class SimulatedAnnealing:
                 candidate = self._dihedral_jump(current)
             cand_pen = self._surrogate_penalty(candidate)
             delta = cand_pen - cur_pen
+            if delta < -1e-9:
+                improved += 1
             if delta < 0 or random.random() < math.exp(-delta / T):
                 current, cur_pen = candidate, cand_pen
                 accepted += 1
@@ -1393,7 +1634,7 @@ class SimulatedAnnealing:
             T *= alpha
         mejora = (1 - best_pen / init_pen) * 100 if init_pen > 0 else 0.0
         self.logger.info(f"  [SA] H inicial={init_pen:.0f} -> H final={best_pen:.0f} "
-                         f"({mejora:+.1f}%) | iters={iters} | aceptadas={accepted}")
+                         f"({mejora:+.1f}%) | iters={iters} | mejoras_estrictas={improved} | aceptadas={accepted}")
         return best
 
 # =============================================================================
@@ -1570,7 +1811,6 @@ class SolverPipeline:
         self.logger = logging.getLogger("Pipeline")
         self.parser = ITC2019Parser()
         self.extractor = SpectralExtractor(cfg)
-        self.oracle = GNNOracle(cfg)
 
     def solve_instance(self, xml_path: str) -> Dict:
         name, t0 = Path(xml_path).stem, time.time()
@@ -1580,18 +1820,17 @@ class SolverPipeline:
                          f"Timeslots: {len(inst.timeslots)} | Estudiantes: {len(inst.students)} | "
                          f"Distribuciones: {len(inst.distributions)}")
         polytopes, W, idx = self.extractor.decompose(inst)
-        # ── MÉTRICAS DE POLITOPOS (componentes conexas del grafo de conflicto) ──
+        # ── MÉTRICAS DE POLITOPOS ESPECTRALES ──
         sizes = sorted((len(p['class_ids']) for p in polytopes), reverse=True)
         movibles = [s for s in sizes if s > 1]
         singletons = len(sizes) - len(movibles)
         edges = int((W > 0).sum() // 2)
-        self.logger.info(f"  [Politopos] {len(polytopes)} componentes | aristas conflicto: {edges} | "
+        media = float(np.mean(movibles)) if movibles else 0.0
+        self.logger.info(f"  [Politopos] {len(polytopes)} clústeres espectrales | aristas duras: {edges} | "
                          f"movibles(>1): {len(movibles)} | aislados: {singletons} | "
-                         f"mayor: {sizes[0] if sizes else 0} | "
-                         f"tamaño medio(movibles): {np.mean(movibles):.1f}" if movibles else
-                         f"  [Politopos] {len(polytopes)} componentes | sin aristas de conflicto")
+                         f"mayor: {sizes[0] if sizes else 0} | medio(movibles): {media:.1f}")
 
-        csp = CSPSolver(inst, self.oracle, W, idx, self.cfg)
+        csp = CSPSolver(inst, W, idx, self.cfg)
         asgn = csp.solve()
         if not asgn: return {"instance": name, "status": "INFEASIBLE", "time": time.time() - t0}
         # métrica de costo blando tras CSP
