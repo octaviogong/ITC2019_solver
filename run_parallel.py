@@ -36,10 +36,12 @@ def _worker(args):
     return (n_asg, cost, seed, ser)
 
 def solve_parallel(instance, config_path, jobs, total_restarts, do_sa=False):
-    inst_dir = S.load_config(config_path).PATHS["instances_dir"]
+    cfg = S.load_config(config_path)
+    inst_dir = cfg.PATHS["instances_dir"]
     xml_path = os.path.join(inst_dir, f"{instance}.xml")
     if not os.path.exists(xml_path):        # permitir ruta directa
         xml_path = instance if os.path.exists(instance) else xml_path
+    name = os.path.splitext(os.path.basename(xml_path))[0]
     per = max(1, total_restarts // jobs)
     tasks = [(xml_path, config_path, 1000 + k, per, do_sa) for k in range(jobs)]
     t0 = time.time()
@@ -50,6 +52,25 @@ def solve_parallel(instance, config_path, jobs, total_restarts, do_sa=False):
     for n, c, s, _ in sorted(results, key=lambda r: (-r[0], r[1])):
         print(f"   worker seed={s}: asignadas={n} costo≈{c}")
     print(f"[parallel] MEJOR: asignadas={best[0]} costo≈{best[1]} (seed={best[2]})")
+
+    # ── Reconstruir la mejor asignación, seccionar estudiantes y ESCRIBIR ──
+    best_ser = best[3]
+    inst = S.ITC2019Parser().parse(xml_path)
+    assignment = {cid: S.Assignment(ts, room) for cid, (ts, room) in best_ser.items()}
+
+    enrollment = {}
+    if cfg.SECTIONING.get("enabled", False) and inst.students:
+        sec = S.StudentSectioningGaleShapley(inst, cfg)
+        sec.optimize_sectioning(assignment)
+        enrollment = sec.student_enrollment
+        print(f"[parallel] Seccionamiento: {len(inst.students)} estudiantes, "
+              f"{sum(len(v) for v in enrollment.values())} inscripciones.")
+
+    out_dir = cfg.PATHS["solutions_dir"]
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{name}.xml")
+    S.write_solution(inst, assignment, out_path, elapsed=time.time() - t0, student_enrollment=enrollment)
+    print(f"[parallel] Solución escrita en: {out_path}")
     return best
 
 if __name__ == "__main__":
