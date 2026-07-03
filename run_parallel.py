@@ -8,7 +8,7 @@ Runner multiproceso: reparte los restarts del CSP entre varios procesos
 Uso:  python run_parallel.py --instance bet-sum18 --config config.py --jobs 4
 """
 import argparse, os, random, time, multiprocessing as mp
-import solver_fixed as S
+import solver_poly as S
 
 def _worker(args):
     xml_path, config_path, seed, n_restarts, do_sa = args
