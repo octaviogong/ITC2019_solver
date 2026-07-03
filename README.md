@@ -33,3 +33,6 @@ Asegúrate de contar con Python 3.8+ y las siguientes librerías instaladas:
 pip install numpy scipy
 pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu118](https://download.pytorch.org/whl/cu118)
 pip install torch_geometric
+```
+
+Desarrollado en el Instituto Tecnológico de León, México. 🇲🇽
