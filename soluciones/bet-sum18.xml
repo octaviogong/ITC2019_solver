@@ -1,90 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE solution PUBLIC "-//ITC 2019//DTD Problem Format/EN" "http://www.itc2019.org/competition-format.dtd">
-<solution name="bet-sum18" runtime="1240.8" cores="1" technique="GNN &amp; Latin Polytopes (API-Carpio)" institution="Instituto Tecnológico de León" country="Mexico">
-  <class id="1" days="1111100" start="96" length="15" weeks="111111" room="18" />
-  <class id="2" days="1111100" start="112" length="15" weeks="111111" room="16" />
-  <class id="3" days="1111100" start="112" length="15" weeks="111111" room="23" />
-  <class id="4" days="1111100" start="128" length="15" weeks="111111" room="37" />
-  <class id="5" days="1111100" start="112" length="15" weeks="111111" room="37" />
-  <class id="6" days="1111100" start="128" length="15" weeks="111111" room="23" />
-  <class id="7" days="1111100" start="96" length="15" weeks="111111" room="16" />
-  <class id="8" days="1111100" start="112" length="15" weeks="111111" room="4" />
-  <class id="9" days="1111100" start="128" length="15" weeks="111111" room="4" />
+<solution name="bet-sum18" runtime="93.9" cores="1" technique="GNN &amp; Latin Polytopes (API-Carpio)" institution="Instituto Tecnológico de León" country="Mexico">
+  <class id="1" days="1111100" start="96" length="15" weeks="111111" room="3" />
+  <class id="2" days="1111100" start="112" length="15" weeks="111111" room="25" />
+  <class id="3" days="1111100" start="112" length="15" weeks="111111" room="37" />
+  <class id="4" days="1111100" start="128" length="15" weeks="111111" room="9" />
+  <class id="5" days="1111100" start="112" length="15" weeks="111111" room="9" />
+  <class id="6" days="1111100" start="128" length="15" weeks="111111" room="37" />
+  <class id="7" days="1111100" start="96" length="15" weeks="111111" room="25" />
+  <class id="8" days="1111100" start="128" length="15" weeks="111111" room="4" />
+  <class id="9" days="1111100" start="112" length="15" weeks="111111" room="4" />
   <class id="10" days="1111100" start="96" length="15" weeks="111111" room="10" />
   <class id="11" days="1000000" start="132" length="30" weeks="111111" room="44" />
   <class id="12" days="0010000" start="132" length="30" weeks="111111" room="44" />
   <class id="13" days="0100000" start="132" length="30" weeks="111111" room="44" />
   <class id="14" days="0001000" start="132" length="30" weeks="111111" room="44" />
-  <class id="15" days="0100000" start="132" length="30" weeks="111111" room="43" />
-  <class id="16" days="1000000" start="132" length="30" weeks="111111" room="43" />
+  <class id="15" days="0001000" start="132" length="30" weeks="111111" room="43" />
+  <class id="16" days="0100000" start="132" length="30" weeks="111111" room="43" />
   <class id="17" days="0010000" start="132" length="30" weeks="111111" room="43" />
-  <class id="18" days="0001000" start="132" length="30" weeks="111111" room="43" />
+  <class id="18" days="1000000" start="132" length="30" weeks="111111" room="43" />
   <class id="19" days="1111100" start="96" length="15" weeks="111111" room="17" />
   <class id="20" days="1111100" start="96" length="15" weeks="111111" room="4" />
-  <class id="21" days="1111100" start="96" length="15" weeks="111111" room="8" />
-  <class id="22" days="1111100" start="112" length="15" weeks="111111" room="8" />
+  <class id="21" days="1111100" start="96" length="15" weeks="111111" room="18" />
+  <class id="22" days="1111100" start="112" length="15" weeks="111111" room="18" />
   <class id="23" days="1111100" start="112" length="15" weeks="111111" room="17" />
-  <class id="24" days="1111100" start="112" length="15" weeks="111111" room="40" />
-  <class id="25" days="1111100" start="128" length="15" weeks="111111" room="40" />
-  <class id="26" days="1111100" start="96" length="15" weeks="111111" room="40" />
+  <class id="24" days="1111100" start="112" length="15" weeks="111111" room="27" />
+  <class id="25" days="1111100" start="128" length="15" weeks="111111" room="27" />
+  <class id="26" days="1111100" start="96" length="15" weeks="111111" room="22" />
   <class id="27" days="1111100" start="128" length="15" weeks="111111" room="18" />
-  <class id="28" days="1111100" start="112" length="15" weeks="111111" room="18" />
-  <class id="29" days="1101000" start="144" length="25" weeks="111000" room="7" />
-  <class id="30" days="1101000" start="102" length="25" weeks="000111" room="7" />
-  <class id="31" days="1101000" start="174" length="25" weeks="111000" room="16" />
-  <class id="32" days="1101000" start="132" length="25" weeks="000111" room="16" />
+  <class id="28" days="1111100" start="112" length="15" weeks="111111" room="22" />
+  <class id="29" days="1101000" start="144" length="25" weeks="111000" room="29" />
+  <class id="30" days="1101000" start="102" length="25" weeks="000111" room="29" />
+  <class id="31" days="1101000" start="174" length="25" weeks="111000" room="23" />
+  <class id="32" days="1101000" start="132" length="25" weeks="000111" room="23" />
   <class id="33" days="1101000" start="144" length="25" weeks="111000" room="30" />
   <class id="34" days="1101000" start="102" length="25" weeks="000111" room="30" />
-  <class id="35" days="1101000" start="174" length="25" weeks="111000" room="21" />
-  <class id="36" days="1101000" start="132" length="25" weeks="000111" room="21" />
-  <class id="37" days="1101000" start="174" length="25" weeks="111000" room="30" />
-  <class id="38" days="1101000" start="132" length="25" weeks="000111" room="30" />
+  <class id="35" days="1101000" start="174" length="25" weeks="111000" room="16" />
+  <class id="36" days="1101000" start="132" length="25" weeks="000111" room="16" />
+  <class id="37" days="1101000" start="174" length="25" weeks="111000" room="25" />
+  <class id="38" days="1101000" start="132" length="25" weeks="000111" room="25" />
   <class id="39" days="1101000" start="144" length="25" weeks="111000" room="21" />
   <class id="40" days="1101000" start="102" length="25" weeks="000111" room="21" />
-  <class id="41" days="1101000" start="144" length="25" weeks="111000" room="28" />
-  <class id="42" days="1101000" start="102" length="25" weeks="000111" room="28" />
-  <class id="43" days="1101000" start="144" length="25" weeks="111000" room="25" />
-  <class id="44" days="1101000" start="102" length="25" weeks="000111" room="25" />
-  <class id="45" days="1101000" start="174" length="25" weeks="111000" room="28" />
-  <class id="46" days="1101000" start="132" length="25" weeks="000111" room="28" />
+  <class id="41" days="1101000" start="144" length="25" weeks="111000" room="23" />
+  <class id="42" days="1101000" start="102" length="25" weeks="000111" room="23" />
+  <class id="43" days="1101000" start="144" length="25" weeks="111000" room="16" />
+  <class id="44" days="1101000" start="102" length="25" weeks="000111" room="16" />
+  <class id="45" days="1101000" start="174" length="25" weeks="111000" room="21" />
+  <class id="46" days="1101000" start="132" length="25" weeks="000111" room="21" />
   <class id="47" days="1101000" start="174" length="25" weeks="111000" room="7" />
   <class id="48" days="1101000" start="132" length="25" weeks="000111" room="7" />
-  <class id="49" days="1101000" start="144" length="25" weeks="111000" room="29" />
-  <class id="50" days="1101000" start="102" length="25" weeks="000111" room="29" />
-  <class id="51" days="1111100" start="128" length="15" weeks="111111" room="34" />
-  <class id="52" days="1111100" start="112" length="15" weeks="111111" room="27" />
-  <class id="53" days="1111100" start="112" length="15" weeks="111111" room="5" />
-  <class id="54" days="1111100" start="128" length="15" weeks="111111" room="5" />
-  <class id="55" days="1111100" start="96" length="15" weeks="111111" room="12" />
-  <class id="56" days="1111100" start="112" length="15" weeks="111111" room="34" />
-  <class id="57" days="1111100" start="96" length="15" weeks="111111" room="34" />
-  <class id="58" days="1111100" start="96" length="15" weeks="111111" room="3" />
-  <class id="59" days="1000000" start="114" length="25" weeks="111111" room="3" />
-  <class id="60" days="0010000" start="114" length="25" weeks="111111" room="3" />
-  <class id="61" days="0001000" start="114" length="25" weeks="111111" room="3" />
-  <class id="62" days="1111000" start="144" length="16" weeks="111111" room="34" />
-  <class id="63" days="1111000" start="144" length="16" weeks="111111" room="42" />
-  <class id="64" days="1111000" start="128" length="16" weeks="111111" room="42" />
-  <class id="65" days="0000100" start="156" length="15" weeks="111111" room="34" />
-  <class id="66" days="0000100" start="128" length="15" weeks="111111" room="42" />
-  <class id="67" days="0000100" start="156" length="15" weeks="111111" room="42" />
-  <class id="68" days="1111100" start="128" length="15" weeks="111111" room="9" />
-  <class id="69" days="1111100" start="112" length="15" weeks="111111" room="9" />
-  <class id="70" days="1111100" start="112" length="15" weeks="111111" room="12" />
-  <class id="71" days="1111100" start="128" length="15" weeks="111111" room="27" />
-  <class id="72" days="1111100" start="128" length="15" weeks="111111" room="12" />
-  <class id="73" days="1000000" start="96" length="30" weeks="111111" room="2" />
-  <class id="74" days="0100000" start="96" length="30" weeks="111111" room="2" />
-  <class id="75" days="0010000" start="96" length="30" weeks="111111" room="2" />
-  <class id="76" days="0001000" start="96" length="30" weeks="111111" room="2" />
-  <class id="77" days="0000100" start="96" length="30" weeks="111111" room="2" />
-  <class id="78" days="1111100" start="96" length="15" weeks="111111" room="33" />
+  <class id="49" days="1101000" start="144" length="25" weeks="111000" room="7" />
+  <class id="50" days="1101000" start="102" length="25" weeks="000111" room="7" />
+  <class id="51" days="1111100" start="128" length="15" weeks="111111" room="12" />
+  <class id="52" days="1111100" start="112" length="15" weeks="111111" room="8" />
+  <class id="53" days="1111100" start="112" length="15" weeks="111111" room="40" />
+  <class id="54" days="1111100" start="128" length="15" weeks="111111" room="40" />
+  <class id="55" days="1111100" start="96" length="15" weeks="111111" room="5" />
+  <class id="56" days="1111100" start="112" length="15" weeks="111111" room="39" />
+  <class id="57" days="1111100" start="96" length="15" weeks="111111" room="12" />
+  <class id="58" days="1111100" start="96" length="15" weeks="111111" room="34" />
+  <class id="59" days="1000000" start="114" length="25" weeks="111111" room="34" />
+  <class id="60" days="0010000" start="114" length="25" weeks="111111" room="34" />
+  <class id="61" days="0001000" start="114" length="25" weeks="111111" room="34" />
+  <class id="62" days="1111000" start="144" length="16" weeks="111111" room="12" />
+  <class id="63" days="1111000" start="128" length="16" weeks="111111" room="42" />
+  <class id="64" days="1111000" start="144" length="16" weeks="111111" room="42" />
+  <class id="65" days="0000100" start="156" length="15" weeks="111111" room="12" />
+  <class id="66" days="0000100" start="156" length="15" weeks="111111" room="42" />
+  <class id="67" days="0000100" start="128" length="15" weeks="111111" room="42" />
+  <class id="68" days="1111100" start="128" length="15" weeks="111111" room="3" />
+  <class id="69" days="1111100" start="112" length="15" weeks="111111" room="3" />
+  <class id="70" days="1111100" start="112" length="15" weeks="111111" room="5" />
+  <class id="71" days="1111100" start="128" length="15" weeks="111111" room="8" />
+  <class id="72" days="1111100" start="128" length="15" weeks="111111" room="5" />
+  <class id="73" days="1000000" start="96" length="30" weeks="111111" room="42" />
+  <class id="74" days="0100000" start="96" length="30" weeks="111111" room="42" />
+  <class id="75" days="0010000" start="96" length="30" weeks="111111" room="42" />
+  <class id="76" days="0001000" start="96" length="30" weeks="111111" room="42" />
+  <class id="77" days="0000100" start="96" length="30" weeks="111111" room="42" />
+  <class id="78" days="1111100" start="96" length="15" weeks="111111" room="11" />
   <class id="79" days="1111100" start="112" length="15" weeks="111111" room="11" />
-  <class id="80" days="1111100" start="128" length="15" weeks="111111" room="41" />
-  <class id="81" days="1111000" start="128" length="16" weeks="111111" room="33" />
-  <class id="82" days="1111000" start="144" length="16" weeks="111111" room="33" />
-  <class id="83" days="0000100" start="128" length="15" weeks="111111" room="11" />
-  <class id="84" days="0000100" start="156" length="15" weeks="111111" room="33" />
+  <class id="80" days="1111100" start="128" length="15" weeks="111111" room="29" />
+  <class id="81" days="1111000" start="128" length="16" weeks="111111" room="11" />
+  <class id="82" days="1111000" start="144" length="16" weeks="111111" room="2" />
+  <class id="83" days="0000100" start="156" length="15" weeks="111111" room="2" />
+  <class id="84" days="0000100" start="128" length="15" weeks="111111" room="11" />
   <class id="85" days="1000000" start="128" length="15" weeks="111111" room="26" />
   <class id="86" days="0100000" start="128" length="15" weeks="111111" room="26" />
   <class id="87" days="0010000" start="128" length="15" weeks="111111" room="26" />
@@ -105,23 +105,23 @@
   <class id="102" days="0000100" start="108" length="73" weeks="111111" room="36" />
   <class id="103" days="0000010" start="108" length="87" weeks="111111" room="13" />
   <class id="104" days="1000000" start="96" length="10" weeks="111111" />
-  <class id="105" days="0100000" start="128" length="25" weeks="111111" room="2" />
-  <class id="106" days="0001000" start="128" length="25" weeks="111111" room="2" />
-  <class id="107" days="1111100" start="112" length="15" weeks="111111" room="41" />
-  <class id="108" days="1111100" start="96" length="15" weeks="111111" room="41" />
-  <class id="109" days="1111000" start="112" length="16" weeks="111111" room="22" />
-  <class id="110" days="1111000" start="128" length="16" weeks="111111" room="22" />
-  <class id="111" days="0000100" start="112" length="15" weeks="111111" room="22" />
-  <class id="112" days="0000100" start="128" length="15" weeks="111111" room="22" />
+  <class id="105" days="0100000" start="128" length="25" weeks="111111" room="41" />
+  <class id="106" days="0001000" start="128" length="25" weeks="111111" room="41" />
+  <class id="107" days="1111100" start="96" length="15" weeks="111111" room="33" />
+  <class id="108" days="1111100" start="112" length="15" weeks="111111" room="12" />
+  <class id="109" days="1111000" start="128" length="16" weeks="111111" room="33" />
+  <class id="110" days="1111000" start="112" length="16" weeks="111111" room="33" />
+  <class id="111" days="0000100" start="128" length="15" weeks="111111" room="33" />
+  <class id="112" days="0000100" start="112" length="15" weeks="111111" room="33" />
   <class id="113" days="1000000" start="192" length="10" weeks="111111" />
   <class id="114" days="1111100" start="128" length="15" weeks="111111" room="46" />
-  <class id="115" days="1111100" start="96" length="15" weeks="111111" room="11" />
-  <class id="116" days="1111100" start="112" length="15" weeks="111111" room="33" />
+  <class id="115" days="1111100" start="96" length="15" weeks="111111" room="2" />
+  <class id="116" days="1111100" start="112" length="15" weeks="111111" room="41" />
   <class id="117" days="0111000" start="102" length="25" weeks="111111" room="46" />
-  <class id="118" days="1111100" start="112" length="15" weeks="111111" room="39" />
-  <class id="119" days="1111100" start="128" length="15" weeks="111111" room="39" />
-  <class id="120" days="1111100" start="96" length="15" weeks="111111" room="42" />
-  <class id="121" days="1111100" start="112" length="15" weeks="111111" room="42" />
+  <class id="118" days="1111100" start="128" length="15" weeks="111111" room="2" />
+  <class id="119" days="1111100" start="112" length="15" weeks="111111" room="2" />
+  <class id="120" days="1111100" start="96" length="15" weeks="111111" room="28" />
+  <class id="121" days="1111100" start="112" length="15" weeks="111111" room="28" />
   <class id="122" days="1111100" start="96" length="15" weeks="111111" room="37" />
   <class id="123" days="1111000" start="108" length="48" weeks="111111" room="45" />
   <class id="124" days="1111000" start="108" length="48" weeks="111111" room="36" />

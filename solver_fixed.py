@@ -82,6 +82,7 @@ class CourseClass:
     id: str
     course_id: str
     config_id: str
+    subpart_id: str = ""
     limit: int = 0
     length: int = 1
     parent: str = ""
@@ -107,6 +108,8 @@ class Instance:
     rooms: Dict[str, Room] = field(default_factory=dict)
     classes: Dict[str, CourseClass] = field(default_factory=dict)
     distributions: List[Distribution] = field(default_factory=list)
+    # student_id -> lista de course_ids en que está inscrito (del bloque <students>)
+    students: Dict[str, List[str]] = field(default_factory=dict)
     num_weeks: int = 1
     num_days: int = 5
     slots_per_day: int = 10
@@ -198,6 +201,7 @@ class ITC2019Parser:
             for cfg in course.findall("config"):
                 config_id = cfg.get("id", "")
                 for subpart in cfg.findall("subpart"):
+                    subpart_id = subpart.get("id", "")
                     subpart_times = [self._parse_time(tm, inst, time_map) for tm in subpart.findall("time")]
                     subpart_rooms = [rm.get("id", "") for rm in subpart.findall("room")]
                     subpart_length = int(subpart.get("length", 0))
@@ -217,6 +221,7 @@ class ITC2019Parser:
 
                         cc = CourseClass(
                             id=cls.get("id", ""), course_id=course_id, config_id=config_id,
+                            subpart_id=subpart_id,
                             limit=int(cls.get("limit", 0)), length=cls_length, parent=cls.get("parent", "")
                         )
                         cls_times = {self._parse_time(tm, inst, time_map): int(tm.get("penalty", "0")) for tm in cls_own_times}
@@ -246,6 +251,17 @@ class ITC2019Parser:
             for c in dist.findall("class"):
                 d.classes.append(c.get("id", ""))
             inst.distributions.append(d)
+
+        # ── ESTUDIANTES ──────────────────────────────────────────────────
+        # En ITC 2019 los estudiantes NO son hijos de <class>: vienen en un
+        # bloque <students>, cada <student> con los <course> en que se inscribe.
+        # El solver debe seccionarlos luego en clases concretas.
+        students_container = root.find("students")
+        if students_container is not None:
+            for st in students_container.findall("student"):
+                sid = st.get("id", "")
+                courses = [c.get("id", "") for c in st.findall("course")]
+                inst.students[sid] = courses
 
         return inst
 
@@ -927,6 +943,15 @@ class CSPSolver:
         if pinned:
             self.logger.info(f"  Fijadas {len(pinned)} clases rígidas (|dominio|=1) por propagación.")
 
+        # Parada temprana por estancamiento: una vez COMPLETA la asignación, si
+        # tras 'stagnation' restarts consecutivos no baja el costo, cortamos
+        # (evita gastar los 100 restarts / timeout sin ganar nada — el "cuelgue").
+        stagnation = self.cfg.CSP.get("stagnation_restarts", 8)
+        min_restarts = self.cfg.CSP.get("min_restarts", 3)
+        n_total = len(unassigned_meta)
+        best_cost = float("inf")
+        no_improve = 0
+
         for restart in range(max_restarts):
             if self._timeout(): break
 
@@ -1017,7 +1042,17 @@ class CSPSolver:
             if cur_n > best_n or (cur_n == best_n and cur_n > 0 and
                                   self._soft_cost(current_meta_assignment) < self._soft_cost(best_meta_assignment)):
                 best_meta_assignment = deepcopy(current_meta_assignment)
-            # No cortamos al primer completo: seguimos iterando para abaratar.
+            # Seguimos iterando para abaratar, PERO paramos si el costo se estanca.
+            if len(best_meta_assignment) == n_total:
+                bc = self._soft_cost(best_meta_assignment)
+                if bc < best_cost - 1e-9:
+                    best_cost, no_improve = bc, 0
+                else:
+                    no_improve += 1
+                if restart + 1 >= min_restarts and no_improve >= stagnation:
+                    self.logger.info(f"  Parada por estancamiento: {no_improve} restarts sin mejora "
+                                     f"(costo blando ≈ {best_cost:.0f}, restart {restart+1}/{max_restarts}).")
+                    break
 
         missing = [v for v in unassigned_meta if v not in best_meta_assignment]
         for v in missing:
@@ -1305,9 +1340,13 @@ class SimulatedAnnealing:
 
         room_prob = self.cfg.SA.get("room_move_prob", 0.45)
         kempe_prob = self.cfg.SA.get("kempe_prob", 0.9)
+        init_pen = cur_pen
+        accepted = 0
+        iters = 0
 
         for _ in range(self.cfg.SA["max_iterations"]):
             if T < T_min: break
+            iters += 1
             r = random.random()
             if r < room_prob * 0.35:
                 candidate = self._room_reassign(current)
@@ -1323,10 +1362,13 @@ class SimulatedAnnealing:
             delta = cand_pen - cur_pen
             if delta < 0 or random.random() < math.exp(-delta / T):
                 current, cur_pen = candidate, cand_pen
+                accepted += 1
                 if cur_pen < best_pen:
                     best, best_pen = deepcopy(current), cur_pen
             T *= alpha
-        self.logger.info(f"  SA Espectral: Energía H(s) = {best_pen:.2f}")
+        mejora = (1 - best_pen / init_pen) * 100 if init_pen > 0 else 0.0
+        self.logger.info(f"  [SA] H inicial={init_pen:.0f} -> H final={best_pen:.0f} "
+                         f"({mejora:+.1f}%) | iters={iters} | aceptadas={accepted}")
         return best
 
 # =============================================================================
@@ -1334,36 +1376,146 @@ class SimulatedAnnealing:
 # =============================================================================
 
 class StudentSectioningGaleShapley:
+    """
+    Seccionamiento jerárquico de estudiantes. Para cada estudiante y cada curso
+    en que está inscrito, elige UNA clase por subpart de un config, respetando:
+      - relación parent-child (una clase con parent solo se toma si el parent ya
+        fue elegido),
+      - cupo (limit) de cada clase cuando es posible,
+      - minimizando solapes de horario con el resto del horario del estudiante.
+    Produce self.student_enrollment: class_id -> [student_ids].
+    """
     def __init__(self, inst: Instance, cfg):
         self.inst = inst
         self.cfg = cfg
-        self.logger = logging.getLogger("GaleShapley")
+        self.logger = logging.getLogger("Sectioning")
+        self.student_enrollment: Dict[str, List[str]] = defaultdict(list)
+        self.class_load: Dict[str, int] = defaultdict(int)
+        self._build_course_structure()
 
-    def _build_course_trees(self) -> Dict[str, Dict[str, List[str]]]:
-        trees = {}
+    def _build_course_structure(self):
+        # course -> config -> subpart -> [class_ids]
+        self.course_configs: Dict[str, Dict[str, Dict[str, List[str]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
         for cid, cls in self.inst.classes.items():
-            conf = cls.config_id
-            if conf not in trees: trees[conf] = {}
-            parent = cls.parent if cls.parent else "ROOT"
-            if parent not in trees[conf]: trees[conf][parent] = []
-            trees[conf][parent].append(cid)
-            if cid not in trees[conf]: trees[conf][cid] = []
-        return trees
+            self.course_configs[cls.course_id][cls.config_id][cls.subpart_id].append(cid)
+        # orden topológico de subparts por config (padres antes que hijos)
+        self.config_subpart_order: Dict[Tuple[str, str], List[str]] = {}
+        for course, configs in self.course_configs.items():
+            for config_id, subparts in configs.items():
+                # subpart de cada clase padre
+                dep = {sp: set() for sp in subparts}   # sp -> set(subparts de los que depende)
+                for sp, cids in subparts.items():
+                    for cid in cids:
+                        par = self.inst.classes[cid].parent
+                        if par and par in self.inst.classes:
+                            dep[sp].add(self.inst.classes[par].subpart_id)
+                order, placed = [], set()
+                # orden estable tipo Kahn
+                while len(placed) < len(subparts):
+                    progress = False
+                    for sp in subparts:
+                        if sp in placed: continue
+                        if dep[sp] <= placed:
+                            order.append(sp); placed.add(sp); progress = True
+                    if not progress:   # ciclo raro: colocar el resto tal cual
+                        for sp in subparts:
+                            if sp not in placed: order.append(sp); placed.add(sp)
+                        break
+                self.config_subpart_order[(course, config_id)] = order
+
+    def _overlaps(self, ts_a: str, len_a: int, ts_b: str, len_b: int) -> bool:
+        A, B = self.inst.timeslots.get(ts_a), self.inst.timeslots.get(ts_b)
+        if not A or not B: return False
+        if not ((A.days_mask & B.days_mask) and (A.weeks_mask & B.weeks_mask)): return False
+        return not (A.start_int + len_a <= B.start_int or B.start_int + len_b <= A.start_int)
+
+    def _conflicts_with_schedule(self, cid: str, schedule: List[str], assignment: Dict[str, Assignment]) -> int:
+        a = assignment.get(cid)
+        if not a or not a.timeslot: return 0
+        la = self.inst.classes[cid].length
+        n = 0
+        for other in schedule:
+            b = assignment.get(other)
+            if not b or not b.timeslot: continue
+            if self._overlaps(a.timeslot, la, b.timeslot, self.inst.classes[other].length): n += 1
+        return n
+
+    def _select_for_config(self, course: str, config_id: str, prev_schedule: List[str],
+                           assignment: Dict[str, Assignment]) -> Optional[List[str]]:
+        subparts = self.course_configs[course][config_id]
+        chosen: List[str] = []
+        chosen_set: set = set()
+        for sp in self.config_subpart_order[(course, config_id)]:
+            candidates = subparts[sp]
+            # respetar parent: si la clase tiene parent, debe estar ya elegido
+            valid = [c for c in candidates
+                     if (not self.inst.classes[c].parent) or (self.inst.classes[c].parent in chosen_set)]
+            if not valid:
+                valid = candidates   # sin opción válida: relajar parent (evita quedar sin inscribir)
+            # preferir con cupo disponible
+            with_cap = [c for c in valid if self.inst.classes[c].limit <= 0
+                        or self.class_load[c] < self.inst.classes[c].limit]
+            pool = with_cap or valid
+            # elegir la que menos solapa con el horario acumulado
+            horizon = prev_schedule + chosen
+            best = min(pool, key=lambda c: (self._conflicts_with_schedule(c, horizon, assignment),
+                                            self.class_load[c]))
+            chosen.append(best); chosen_set.add(best)
+        return chosen
 
     def optimize_sectioning(self, assignment: Dict[str, Assignment]) -> Dict[str, Assignment]:
-        if not self.cfg.SECTIONING.get("enabled", False): return assignment
-        self.logger.info("  Iniciando Seccionamiento Jerárquico (Parent-Child)...")
-        course_trees = self._build_course_trees()
-        self.logger.info(f"  Análisis completado: {len(course_trees)} árboles de configuración procesados.")
-        self.logger.info("  Factibilidad dura asegurada. Saltando reasignación blanda para proteger el XML.")
+        if not self.cfg.SECTIONING.get("enabled", False) or not self.inst.students:
+            self.logger.info("  Seccionamiento saltado: deshabilitado o instancia sin estudiantes.")
+            return assignment
+        self.student_enrollment.clear(); self.class_load.clear()
+        n_students = len(self.inst.students)
+        n_conflict_students = 0
+        total_conflicts = 0
+        for sid, courses in self.inst.students.items():
+            schedule: List[str] = []
+            for course in courses:
+                configs = self.course_configs.get(course)
+                if not configs:
+                    continue
+                # elegir el config que produzca el horario con menos solapes
+                best_sel, best_confl = None, None
+                for config_id in configs:
+                    sel = self._select_for_config(course, config_id, schedule, assignment)
+                    if sel is None: continue
+                    confl = sum(self._conflicts_with_schedule(c, schedule + [x for x in sel if x != c], assignment)
+                                for c in sel)
+                    if best_confl is None or confl < best_confl:
+                        best_sel, best_confl = sel, confl
+                if best_sel:
+                    for cid in best_sel:
+                        self.student_enrollment[cid].append(sid)
+                        self.class_load[cid] += 1
+                        self.inst.classes[cid].students.add(sid)
+                        schedule.append(cid)
+                    total_conflicts += best_confl or 0
+            # detectar si el estudiante quedó con algún solape
+            if any(self._conflicts_with_schedule(c, [x for x in schedule if x != c], assignment) for c in schedule):
+                n_conflict_students += 1
+        enrolled_pairs = sum(len(v) for v in self.student_enrollment.values())
+        self.logger.info(f"  Seccionamiento: {n_students} estudiantes inscritos, "
+                         f"{enrolled_pairs} pares (estudiante,clase), "
+                         f"{n_conflict_students} con solape de horario, "
+                         f"~{total_conflicts} solapes internos.")
+        # advertir clases sobre cupo
+        over = [cid for cid, n in self.class_load.items()
+                if self.inst.classes[cid].limit > 0 and n > self.inst.classes[cid].limit]
+        if over:
+            self.logger.info(f"  ⚠ {len(over)} clases quedaron por encima de su límite de cupo.")
         return assignment
 
 # =============================================================================
 #  ESCRITOR Y ORQUESTADOR
 # =============================================================================
 
-def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: str, elapsed: float = 0.0):
+def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: str,
+                   elapsed: float = 0.0, student_enrollment: Optional[Dict[str, List[str]]] = None):
     root = ET.Element("solution", name=inst.name, runtime=f"{elapsed:.1f}", cores="1", technique="GNN & Latin Polytopes (API-Carpio)", institution="Instituto Tecnológico de León", country="Mexico")
+    enroll = student_enrollment or {}
     for cid in sorted(assignment.keys(), key=lambda x: int(x) if x.isdigit() else x):
         asgn = assignment[cid]
         cls_el = ET.SubElement(root, "class", id=cid)
@@ -1377,7 +1529,10 @@ def write_solution(inst: Instance, assignment: Dict[str, Assignment], out_path: 
                 cls_el.set("weeks",  ts.weeks)
         if asgn.room and asgn.room not in ("NO_ROOM", ""):
             cls_el.set("room", asgn.room)
-            
+        # En ITC 2019 los estudiantes inscritos van como hijos <student> de la clase.
+        for sid in enroll.get(cid, ()):
+            ET.SubElement(cls_el, "student", id=sid)
+
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -1397,18 +1552,35 @@ class SolverPipeline:
         name, t0 = Path(xml_path).stem, time.time()
         self.logger.info(f"\n{'═'*60}\n  Instancia: {name}\n{'═'*60}")
         inst = self.parser.parse(xml_path)
-        self.logger.info(f"  Clases: {len(inst.classes)} | Aulas: {len(inst.rooms)} | Timeslots: {len(inst.timeslots)}")
+        self.logger.info(f"  Clases: {len(inst.classes)} | Aulas: {len(inst.rooms)} | "
+                         f"Timeslots: {len(inst.timeslots)} | Estudiantes: {len(inst.students)} | "
+                         f"Distribuciones: {len(inst.distributions)}")
         polytopes, W, idx = self.extractor.decompose(inst)
-        
+        # ── MÉTRICAS DE POLITOPOS (componentes conexas del grafo de conflicto) ──
+        sizes = sorted((len(p['class_ids']) for p in polytopes), reverse=True)
+        movibles = [s for s in sizes if s > 1]
+        singletons = len(sizes) - len(movibles)
+        edges = int((W > 0).sum() // 2)
+        self.logger.info(f"  [Politopos] {len(polytopes)} componentes | aristas conflicto: {edges} | "
+                         f"movibles(>1): {len(movibles)} | aislados: {singletons} | "
+                         f"mayor: {sizes[0] if sizes else 0} | "
+                         f"tamaño medio(movibles): {np.mean(movibles):.1f}" if movibles else
+                         f"  [Politopos] {len(polytopes)} componentes | sin aristas de conflicto")
+
         csp = CSPSolver(inst, self.oracle, W, idx, self.cfg)
         asgn = csp.solve()
         if not asgn: return {"instance": name, "status": "INFEASIBLE", "time": time.time() - t0}
+        # métrica de costo blando tras CSP
+        self.logger.info(f"  [CSP] costo blando (tiempo+aula) ≈ {csp._soft_cost({k: v for k, v in asgn.items()}):.0f}")
 
         asgn = SimulatedAnnealing(inst, self.cfg, csp, polytopes).optimize(asgn)
-        asgn = StudentSectioningGaleShapley(inst, self.cfg).optimize_sectioning(asgn)
+
+        sectioner = StudentSectioningGaleShapley(inst, self.cfg)
+        asgn = sectioner.optimize_sectioning(asgn)
+        enrollment = sectioner.student_enrollment
 
         elapsed, out_path = time.time() - t0, str(Path(self.cfg.PATHS["solutions_dir"]) / f"{name}.xml")
-        write_solution(inst, asgn, out_path, elapsed=elapsed)
+        write_solution(inst, asgn, out_path, elapsed=elapsed, student_enrollment=enrollment)
         self.logger.info(f"  Solución escrita: {out_path}")
         return {"instance": name, "status": "OK", "classes": len(asgn), "time": elapsed}
 
