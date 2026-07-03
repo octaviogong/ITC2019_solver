@@ -86,7 +86,7 @@ if __name__ == "__main__":
     ap.add_argument("--instance", required=True)
     ap.add_argument("--config", default="config.py")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2)//2))
-    ap.add_argument("--restarts", type=int, default=16)
+    ap.add_argument("--restarts", type=int, default=40)
     ap.add_argument("--sa", action="store_true")
     a = ap.parse_args()
     solve_parallel(a.instance, a.config, a.jobs, a.restarts, a.sa)
