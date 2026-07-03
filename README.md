@@ -52,18 +52,18 @@ Para pruebas rápidas y revisión detallada del log (telemetría, análisis espe
 ```bash
 python solver_fixed.py --instance bet-sum18 --config config.py
 ```
-🎛 Configuración (config.py)
+## 🎛 Configuración (config.py)
 Todo el comportamiento del solver se controla de manera centralizada en config.py. Las rutas, los hiperparámetros de la GNN y el esquema estocástico se configuran aquí:
 
 PATHS: Directorios para las instancias de entrada, guardado de XMLs de salida, logs y pesos pre-entrenados del modelo GNN (gnn_weights.pt).
 
 SURROGATE_WEIGHTS: Función del Hamiltoniano para ajustar qué penaliza más el Recocido Simulado (Tiempo vs. Aula).
 
-CSP: Activa/Desactiva el uso de matrices dispersas (LP), el peso de la red neuronal (graph_oracle_weight = 0.5) y la cantidad de retrocesos máximos.
+### CSP: Activa/Desactiva el uso de matrices dispersas (LP), el peso de la red neuronal (graph_oracle_weight = 0.5) y la cantidad de retrocesos máximos.
 
-SA: Configura el Recocido Simulado (Temperatura inicial, factor de enfriamiento, probabilidad de Kempe y movimientos agresivos de aula).
+### SA: Configura el Recocido Simulado (Temperatura inicial, factor de enfriamiento, probabilidad de Kempe y movimientos agresivos de aula).
 
-📊 Salida de Resultados
+## 📊 Salida de Resultados
 Al finalizar, el programa reportará en la terminal el costo blando alcanzado, el tiempo total y la energía final del SA. Generará un archivo de salida en formato XML (por defecto en el directorio soluciones/) totalmente listo para ser evaluado en el Validador Oficial de ITC 2019.
 
 Desarrollado en el Instituto Tecnológico de León, México. 🇲🇽
